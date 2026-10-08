@@ -1,34 +1,44 @@
 """
-Bridge MCP Server — Camoufox 浏览器共享协同层
+Bridge Camoufox MCP — share one Camoufox browser across MCP clients and scripts.
 
-通过 HTTP Streamable 传输，让 Cascade 和自动化脚本共享同一个 Camoufox 浏览器实例。
+Transport: Streamable HTTP (default http://127.0.0.1:3180/mcp)
 
-启动: python main.py
-端口: 3180 (HTTP Streamable)
+    python main.py
+    BRIDGE_HOST=127.0.0.1 BRIDGE_PORT=3180 python main.py
 """
-import asyncio
-import os
-import uuid
-import time
+from __future__ import annotations
+
 import glob
-import shutil
+import inspect
 import logging
-from mcp.server.fastmcp import FastMCP
+import os
+import shutil
+import time
+import uuid
 
 from camoufox.async_api import AsyncCamoufox
+from mcp.server.fastmcp import FastMCP
 from playwright.async_api import Page
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [Bridge] %(message)s")
-log = logging.getLogger("bridge")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [bridge-camoufox-mcp] %(message)s")
+log = logging.getLogger("bridge-camoufox-mcp")
 
-# ── 全局状态 ──
-mcp = FastMCP("bridge-mcp", port=3180)
+HOST = os.environ.get("BRIDGE_HOST", "127.0.0.1")
+PORT = int(os.environ.get("BRIDGE_PORT", "3180"))
+
+mcp = FastMCP("bridge-camoufox-mcp")
+_settings = getattr(mcp, "settings", None)
+if _settings is not None:
+    if hasattr(_settings, "host"):
+        _settings.host = HOST
+    if hasattr(_settings, "port"):
+        _settings.port = PORT
+
 _browser_cm = None
 _browser = None
 _page: Page | None = None
-_cache_dir: str | None = None  # 当前浏览器的独立缓存目录
+_cache_dir: str | None = None
 
-# 缓存目录根路径（与 bridge-mcp 同级）
 _CACHE_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "browser_cache")
 
 
@@ -313,11 +323,16 @@ async def frame_find(frame_selector: str, element_selector: str, timeout: int = 
         return "not_found"
 
 
-# ═══════════════════════════════════════════
-#  启动
-# ═══════════════════════════════════════════
+def main() -> None:
+    log.info("listening at http://%s:%s/mcp (streamable-http)", HOST, PORT)
+    kwargs: dict = {"transport": "streamable-http"}
+    params = inspect.signature(mcp.run).parameters
+    if "host" in params:
+        kwargs["host"] = HOST
+    if "port" in params:
+        kwargs["port"] = PORT
+    mcp.run(**kwargs)
+
 
 if __name__ == "__main__":
-    port = int(os.environ.get("BRIDGE_PORT", "3180"))
-    log.info(f"Bridge MCP Server 启动中... (port={port}, transport=streamable-http)")
-    mcp.run(transport="streamable-http")
+    main()

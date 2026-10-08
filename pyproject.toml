@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bridge-camoufox-mcp"
+version = "0.1.0"
+description = "Share one Camoufox browser across MCP clients and Python scripts"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+authors = [{ name = "jinpeng-vnode" }]
+keywords = ["mcp", "camoufox", "playwright", "firefox", "browser"]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Internet :: WWW/HTTP :: Browsers",
+]
+dependencies = [
+    "mcp>=1.25.0",
+    "camoufox>=0.4.0",
+    "playwright>=1.40.0",
+]
+
+[project.optional-dependencies]
+geoip = ["camoufox[geoip]>=0.4.0"]
+
+[project.urls]
+Homepage = "https://github.com/jinpeng-vnode/bridge-camoufox-mcp"
+Issues = "https://github.com/jinpeng-vnode/bridge-camoufox-mcp/issues"
+
+[project.scripts]
+bridge-camoufox-mcp = "main:main"
+
+[tool.setuptools]
+py-modules = ["main", "bridge_client"]

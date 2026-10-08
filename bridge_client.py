@@ -1,23 +1,21 @@
 """
-Bridge MCP Client — 自动化脚本用的 Python 客户端
+Python client for a running Bridge Camoufox MCP server.
 
-提供两层接口：
-1. BridgeClient: 直接调用 MCP 工具（async）
-2. PageAdapter: 模拟 Playwright Page API（sync，兼容现有状态机代码）
+1. BridgeClient — async wrappers around MCP tools
+2. PageAdapter — small sync Playwright-like subset
 
-用法：
     from bridge_client import BridgeClient, PageAdapter
 
-    # async 模式
     client = BridgeClient()
     await client.connect()
     await client.goto("https://example.com")
 
-    # sync 模式（兼容现有代码）
     page = PageAdapter(client)
     page.goto("https://example.com")
     page.locator("button").click()
 """
+from __future__ import annotations
+
 import asyncio
 import json
 import logging
@@ -25,8 +23,7 @@ from typing import Any
 
 log = logging.getLogger("bridge_client")
 
-# 默认 Bridge MCP Server 地址
-DEFAULT_SERVER_URL = "http://localhost:3180/mcp"
+DEFAULT_SERVER_URL = "http://127.0.0.1:3180/mcp"
 
 
 class BridgeClient:
@@ -106,7 +103,7 @@ class PageAdapter:
     让现有状态机代码无需大改。
     """
 
-    def __init__(self, client: BridgeClient, loop: asyncio.AbstractEventLoop = None):
+    def __init__(self, client: BridgeClient, loop: asyncio.AbstractEventLoop | None = None):
         self._client = client
         self._loop = loop or asyncio.get_event_loop()
 
