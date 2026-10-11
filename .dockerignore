@@ -1,0 +1,10 @@
+.git
+.gitignore
+__pycache__
+*.pyc
+.venv
+browser_cache
+browser_profiles
+debug_dumps
+tests
+README.md
