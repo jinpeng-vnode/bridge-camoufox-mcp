@@ -29,8 +29,9 @@ DEFAULT_SERVER_URL = "http://127.0.0.1:3180/mcp"
 class BridgeClient:
     """Bridge MCP 异步客户端"""
 
-    def __init__(self, server_url: str = DEFAULT_SERVER_URL):
+    def __init__(self, server_url: str = DEFAULT_SERVER_URL, token: str = ""):
         self.server_url = server_url
+        self.token = token
         self._session = None
         self._transport_cm = None
         self._session_cm = None
@@ -39,7 +40,8 @@ class BridgeClient:
         from mcp import ClientSession
         from mcp.client.streamable_http import streamablehttp_client
 
-        self._transport_cm = streamablehttp_client(self.server_url)
+        headers = {"Authorization": "Bearer %s" % self.token} if self.token else None
+        self._transport_cm = streamablehttp_client(self.server_url, headers=headers)
         read, write, _ = await self._transport_cm.__aenter__()
         self._session_cm = ClientSession(read, write)
         self._session = await self._session_cm.__aenter__()

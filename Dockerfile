@@ -3,6 +3,9 @@ FROM python:3.12-slim-bookworm
 ENV DEBIAN_FRONTEND=noninteractive \
     DISPLAY=:99 \
     BRIDGE_HTTP_HOST=0.0.0.0 \
+    BRIDGE_LAN=1 \
+    BRIDGE_PROFILE_ROOT=/data/profiles \
+    BRIDGE_SCREENSHOT_ROOT=/data/screenshots \
     BRIDGE_HTTP_PORT=3181 \
     PYTHONUNBUFFERED=1 \
     PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple \
@@ -24,7 +27,7 @@ RUN pip install --no-cache-dir -r /app/requirements-http.txt \
 
 COPY . /app
 RUN chmod +x /app/entrypoint.sh \
-    && mkdir -p /data/profiles
+    && mkdir -p /data/profiles /data/screenshots
 
 EXPOSE 3181 6080
 ENTRYPOINT ["/app/entrypoint.sh"]

@@ -9,7 +9,8 @@ import os
 from camoufox.async_api import AsyncCamoufox
 from playwright.async_api import Page
 
-from profile_util import profile_dir, remove_if_ephemeral
+from profile_util import profile_dir, remove_if_ephemeral, screenshot_path
+from security import check_navigation_url
 
 log = logging.getLogger("bridge")
 
@@ -61,9 +62,10 @@ class SessionManager:
                 same = account_id and self._account_id == account_id
                 if same or (not account_id and not user_data_dir):
                     return {"ok": True, "reused": True, **self.snapshot()}
-                await self._close_locked()
-
+            # 先校验路径再关旧会话：路径不合法时不打断正在用的浏览器
             cache = profile_dir(account_id, user_data_dir)
+            if self._page is not None:
+                await self._close_locked()
             kwargs = {
                 "headless": False,
                 "humanize": humanize,
@@ -120,6 +122,7 @@ class SessionManager:
             return {"ok": False, "error": str(exc), **self.snapshot()}
 
     async def goto(self, url: str, wait_until: str = "load", timeout: int = 30000) -> dict:
+        url = check_navigation_url(url)
         page = await self._get_page()
         await page.goto(url, wait_until=wait_until, timeout=timeout)
         return {"ok": True, "url": page.url}
@@ -194,6 +197,7 @@ class SessionManager:
         page = await self._get_page()
         kwargs = {"full_page": full_page}
         if path:
+            path = screenshot_path(path)
             kwargs["path"] = path
         data = await page.screenshot(**kwargs)
         return {"ok": True, "bytes": len(data), "path": path}

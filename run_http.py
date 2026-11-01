@@ -6,6 +6,7 @@ import os
 import threading
 
 from http_api import start_http_server
+from security import StartupError, build_gate
 from session import SessionManager
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [Bridge] %(message)s")
@@ -29,7 +30,11 @@ def call_manager(name, arguments=None, timeout=90):
 if __name__ == "__main__":
     host = os.environ.get("BRIDGE_HTTP_HOST", "127.0.0.1")
     port = int(os.environ.get("BRIDGE_HTTP_PORT", "3181"))
-    token = os.environ.get("BRIDGE_TOKEN", "")
+    try:
+        gate = build_gate(host, port)
+    except StartupError as exc:
+        log.error("拒绝启动：%s", exc)
+        raise SystemExit(2)
     threading.Thread(target=_browser_thread, daemon=True).start()
     log.info("浏览器 HTTP 启动 %s:%s", host, port)
-    start_http_server(host, port, call_manager, token)
+    start_http_server(host, port, call_manager, gate)

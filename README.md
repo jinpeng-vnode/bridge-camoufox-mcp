@@ -40,8 +40,16 @@ Listens on `http://127.0.0.1:3180/mcp` by default.
 
 | Env | Default | Meaning |
 | --- | --- | --- |
-| `BRIDGE_HOST` | `127.0.0.1` | Bind address. Keep loopback unless you add your own auth. |
-| `BRIDGE_PORT` | `3180` | HTTP port |
+| `BRIDGE_HOST` | `127.0.0.1` | MCP bind address |
+| `BRIDGE_PORT` | `3180` | MCP port |
+| `BRIDGE_HTTP_HOST` / `BRIDGE_HTTP_PORT` | `127.0.0.1` / `3181` | Account-pool HTTP API |
+| `BRIDGE_LAN` | unset | `1` allows a non-loopback bind. Requires `BRIDGE_TOKEN`, otherwise the server refuses to start |
+| `BRIDGE_TOKEN` | unset | Bearer token. Checked on every request except `/health` when set |
+| `BRIDGE_ALLOWED_HOSTS` | loopback only | Extra `Host` values, comma separated (`browser:3181`, or `lanbox` for any port). Others get 421 |
+| `BRIDGE_CORS_ORIGINS` | none | Allowed browser origins, comma separated. Others get 403 |
+| `BRIDGE_PROFILE_ROOT` | `./browser_profiles` | `account_id` / `user_data_dir` must resolve inside this directory |
+| `BRIDGE_SCREENSHOT_ROOT` | `./screenshots` | `screenshot(path=...)` must resolve inside this directory |
+| `BRIDGE_VNC_PASSWORD` | unset | Container only: x11vnc password. Unset = no x11vnc / noVNC |
 
 ## Connect an MCP client
 
@@ -66,7 +74,7 @@ import asyncio
 from bridge_client import BridgeClient, PageAdapter
 
 async def main():
-    client = BridgeClient("http://127.0.0.1:3180/mcp")
+    client = BridgeClient("http://127.0.0.1:3180/mcp")  # LAN mode: BridgeClient(url, token="...")
     await client.connect()
     try:
         await client.call_tool("launch_browser", {"humanize": True})
@@ -99,8 +107,10 @@ Each `launch_browser` uses a fresh `browser_cache/cache_*` directory and deletes
 
 ## Security
 
-- No authentication. Default bind is loopback only.
-- Do not expose `BRIDGE_HOST=0.0.0.0` to a network you do not trust.
+- Both ports bind to loopback by default. A non-loopback bind needs `BRIDGE_LAN=1` plus `BRIDGE_TOKEN`; an empty token refuses to start.
+- One gate (`security.py`) checks `Host`, `Origin` (CORS allow-list) and the Bearer token for both the MCP and the HTTP API.
+- `goto` only accepts `http`, `https` and `about:blank`. Profile and screenshot paths are normalized and cannot leave their root directories.
+- In the container, x11vnc listens on `127.0.0.1` only and requires `BRIDGE_VNC_PASSWORD`.
 - `evaluate` runs arbitrary JS **in the live page**. Treat it like a debugger.
 - WebRTC is blocked; Firefox is forced onto DNS-over-HTTPS. That reduces IP leaks, it is not a VPN.
 
@@ -120,7 +130,7 @@ python -m camoufox fetch
 python main.py
 ```
 
-默认只监听 `127.0.0.1:3180`，没有鉴权。客户端填：
+默认只监听本机 `127.0.0.1:3180`（MCP）和 `127.0.0.1:3181`（账号池 HTTP）。要对外监听必须设 `BRIDGE_LAN=1` 和 `BRIDGE_TOKEN`，令牌为空拒绝启动；Host、跨域来源、令牌由 `security.py` 一处校验，环境变量见上表。客户端填：
 
 ```json
 { "mcpServers": { "bridge-camoufox": { "url": "http://127.0.0.1:3180/mcp" } } }

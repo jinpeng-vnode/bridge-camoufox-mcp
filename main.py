@@ -6,18 +6,22 @@ MCP（streamable-http，默认 3180）给脚本用。
 
     python main.py
     BRIDGE_HOST=127.0.0.1 BRIDGE_PORT=3180 python main.py
+
+两个端口默认都只监听本机；要对外监听必须 BRIDGE_LAN=1 并设 BRIDGE_TOKEN（见 security.py）。
 """
 from __future__ import annotations
 
 import asyncio
-import inspect
 import logging
 import os
 import threading
 
+import uvicorn
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
 from http_api import start_http_server
+from security import StartupError, asgi_guard, build_gate
 from session import SessionManager
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [bridge-camoufox-mcp] %(message)s")
@@ -26,13 +30,13 @@ log = logging.getLogger("bridge-camoufox-mcp")
 HOST = os.environ.get("BRIDGE_HOST", "127.0.0.1")
 PORT = int(os.environ.get("BRIDGE_PORT", "3180"))
 
-mcp = FastMCP("bridge-camoufox-mcp")
-_settings = getattr(mcp, "settings", None)
-if _settings is not None:
-    if hasattr(_settings, "host"):
-        _settings.host = HOST
-    if hasattr(_settings, "port"):
-        _settings.port = PORT
+# Host、Origin、令牌统一由 security.Gate 判断，关掉 SDK 自带的那一份，避免两处规则不一致
+mcp = FastMCP(
+    "bridge-camoufox-mcp",
+    host=HOST,
+    port=PORT,
+    transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+)
 
 manager = SessionManager()
 _browser_loop = asyncio.new_event_loop()
@@ -218,23 +222,23 @@ async def frame_find(frame_selector: str, element_selector: str, timeout: int = 
 
 
 def main() -> None:
-    threading.Thread(target=_browser_thread, daemon=True).start()
-    http_host = os.environ.get("BRIDGE_HTTP_HOST", "0.0.0.0")
+    http_host = os.environ.get("BRIDGE_HTTP_HOST", "127.0.0.1")
     http_port = int(os.environ.get("BRIDGE_HTTP_PORT", "3181"))
-    token = os.environ.get("BRIDGE_TOKEN", "")
+    try:
+        mcp_gate = build_gate(HOST, PORT)
+        http_gate = build_gate(http_host, http_port)
+    except StartupError as exc:
+        log.error("拒绝启动：%s", exc)
+        raise SystemExit(2)
+    threading.Thread(target=_browser_thread, daemon=True).start()
     threading.Thread(
         target=start_http_server,
-        args=(http_host, http_port, call_manager, token),
+        args=(http_host, http_port, call_manager, http_gate),
         daemon=True,
     ).start()
     log.info("listening at http://%s:%s/mcp ; http://%s:%s", HOST, PORT, http_host, http_port)
-    kwargs: dict = {"transport": "streamable-http"}
-    params = inspect.signature(mcp.run).parameters
-    if "host" in params:
-        kwargs["host"] = HOST
-    if "port" in params:
-        kwargs["port"] = PORT
-    mcp.run(**kwargs)
+    app = asgi_guard(mcp.streamable_http_app(), mcp_gate)
+    uvicorn.run(app, host=HOST, port=PORT, log_level="info")
 
 
 if __name__ == "__main__":

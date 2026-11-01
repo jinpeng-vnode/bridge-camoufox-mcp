@@ -1,4 +1,4 @@
-"""给账号池用的普通 HTTP，不走 MCP。"""
+"""给账号池用的普通 HTTP，不走 MCP。鉴权、Host、CORS 都交给 security.Gate 这一个关口。"""
 
 from __future__ import annotations
 
@@ -9,26 +9,27 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 log = logging.getLogger("bridge")
 
 
-def start_http_server(host: str, port: int, runner, token: str = ""):
+def make_server(host: str, port: int, runner, gate):
+    """建好服务但不开始监听循环；gate 由调用方在启动前用 build_gate 建好。"""
+
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
         def log_message(self, fmt, *args):
             log.info("%s %s", self.address_string(), fmt % args)
 
-        def _json(self, code, obj):
-            raw = json.dumps(obj, ensure_ascii=False).encode("utf-8")
+        def _json(self, code, obj, extra=()):
+            raw = json.dumps(obj, ensure_ascii=False).encode("utf-8") if obj is not None else b""
             self.send_response(code)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
+            for key, value in extra:
+                self.send_header(key, value)
+            if obj is not None:
+                self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(raw)))
             self.end_headers()
             if self.command != "HEAD":
                 self.wfile.write(raw)
 
-        def _authorized(self) -> bool:
-            if not token:
-                return True
-            return self.headers.get("Authorization", "") == "Bearer %s" % token
 
         def _read_json(self) -> dict:
             try:
@@ -49,29 +50,41 @@ def start_http_server(host: str, port: int, runner, token: str = ""):
         def do_HEAD(self):
             self._dispatch("GET")
 
+        def do_OPTIONS(self):
+            self._dispatch("OPTIONS")
+
         def _dispatch(self, method):
             path = self.path.split("?", 1)[0]
-            if path == "/health":
-                self._json(200, {"ok": True})
+            verdict = gate.evaluate(method, path, dict(self.headers.items()))
+            cors = verdict.headers
+            if verdict.status is not None:
+                self._json(verdict.status, None if verdict.status == 204 else {"error": verdict.error}, cors)
                 return
-            if not self._authorized():
-                self._json(401, {"error": "unauthorized"})
+            if path == "/health":
+                self._json(200, {"ok": True}, cors)
                 return
             try:
                 payload = self._read_json() if method == "POST" else {}
                 result = _route(method, path, payload, runner)
                 if result is None:
-                    self._json(404, {"error": "not found"})
+                    self._json(404, {"error": "not found"}, cors)
                     return
-                self._json(200, result)
+                self._json(200, result, cors)
+            except ValueError as exc:
+                self._json(400, {"error": str(exc)}, cors)
             except RuntimeError as exc:
-                self._json(409, {"error": str(exc)})
+                self._json(409, {"error": str(exc)}, cors)
             except Exception as exc:  # noqa: BLE001
                 log.exception("HTTP 处理失败")
-                self._json(500, {"error": str(exc)})
+                self._json(500, {"error": str(exc)}, cors)
 
     server = ThreadingHTTPServer((host, port), Handler)
     server.daemon_threads = True
+    return server
+
+
+def start_http_server(host: str, port: int, runner, gate):
+    server = make_server(host, port, runner, gate)
     log.info("浏览器 HTTP 监听 %s:%s", host, port)
     server.serve_forever()
 

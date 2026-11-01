@@ -1,12 +1,12 @@
-#!/usr/bin/env python3
-"""配置目录清理：临时缓存可删，账号目录只清磁盘缓存。"""
+"""配置目录：临时缓存可删，账号目录只清磁盘缓存；路径不能跳出限定的根目录。"""
 
 from __future__ import annotations
 
 import os
 import sys
-import tempfile
 import time
+
+import pytest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
@@ -18,41 +18,68 @@ from profile_util import (  # noqa: E402
     profile_dir,
     purge_disk_cache,
     remove_if_ephemeral,
+    screenshot_path,
 )
 
-failures = []
+
+@pytest.fixture
+def roots(tmp_path, monkeypatch):
+    profiles = tmp_path / "profiles"
+    shots = tmp_path / "shots"
+    profiles.mkdir()
+    monkeypatch.setenv("BRIDGE_PROFILE_ROOT", str(profiles))
+    monkeypatch.setenv("BRIDGE_SCREENSHOT_ROOT", str(shots))
+    return os.path.realpath(profiles), os.path.realpath(shots)
 
 
-def check(name, cond, extra=""):
-    print(("PASS  " if cond else "FAIL  ") + name + ("" if cond else "   <- %r" % (extra,)))
-    if not cond:
-        failures.append(name)
-
-
-def main() -> int:
-    persist = profile_dir("acct1", os.path.join(tempfile.gettempdir(), "account-pool-profile-test"))
+def test_account_dir_keeps_cookies(roots):
+    persist = profile_dir("acct1")
+    assert os.path.dirname(persist) == roots[0]
     os.makedirs(os.path.join(persist, "cache2"), exist_ok=True)
     os.makedirs(os.path.join(persist, "cookies"), exist_ok=True)
-    check("账号目录不是临时缓存", not is_ephemeral(persist), persist)
-    removed = purge_disk_cache(persist)
-    check("清掉 cache2", "cache2" in removed and not os.path.isdir(os.path.join(persist, "cache2")), removed)
-    check("cookie 目录还在", os.path.isdir(os.path.join(persist, "cookies")))
-    check("关闭时不删账号目录", remove_if_ephemeral(persist) is False and os.path.isdir(persist))
+    assert not is_ephemeral(persist)
+    assert "cache2" in purge_disk_cache(persist)
+    assert not os.path.isdir(os.path.join(persist, "cache2"))
+    assert os.path.isdir(os.path.join(persist, "cookies"))
+    assert remove_if_ephemeral(persist) is False and os.path.isdir(persist)
 
+
+def test_user_data_dir_inside_root(roots):
+    inside = os.path.join(roots[0], "pool", "acct2")
+    assert profile_dir("", inside) == inside
+    assert profile_dir("", "pool/acct3") == os.path.join(roots[0], "pool", "acct3")
+
+
+@pytest.mark.parametrize("bad", ["../escape", "pool/../../escape", "."])
+def test_user_data_dir_escape_rejected(roots, bad):
+    with pytest.raises(ValueError):
+        profile_dir("", bad)
+
+
+def test_user_data_dir_absolute_outside_rejected(roots, tmp_path):
+    with pytest.raises(ValueError):
+        profile_dir("", str(tmp_path / "elsewhere"))
+
+
+@pytest.mark.parametrize("bad", ["../x", "a/b", "a\\b", "..", "x y", "a\x00b", "c:"])
+def test_bad_account_id_rejected(roots, bad):
+    with pytest.raises(ValueError):
+        profile_dir(bad)
+
+
+def test_screenshot_path(roots, tmp_path):
+    assert screenshot_path("a/b.png") == os.path.join(roots[1], "a", "b.png")
+    with pytest.raises(ValueError):
+        screenshot_path("../../evil.png")
+    with pytest.raises(ValueError):
+        screenshot_path(str(tmp_path / "evil.png"))
+
+
+def test_expired_ephemeral_cleaned():
     old = os.path.join(CACHE_ROOT, "cache_oldtest")
     os.makedirs(old, exist_ok=True)
     os.utime(old, (time.time() - 7200, time.time() - 7200))
-    check("临时缓存判定", is_ephemeral(old), old)
+    assert is_ephemeral(old)
     cleaned = cleanup_ephemeral(max_age=3600)
-    check("过期临时缓存被清", any(os.path.abspath(p) == os.path.abspath(old) for p in cleaned), cleaned)
-    check("过期目录已不在", not os.path.isdir(old))
-
-    if failures:
-        print("失败 %d 项" % len(failures))
-        return 1
-    print("全部通过")
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+    assert any(os.path.abspath(p) == os.path.abspath(old) for p in cleaned)
+    assert not os.path.isdir(old)
