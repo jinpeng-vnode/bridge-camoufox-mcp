@@ -20,7 +20,7 @@ classifiers = [
     "Topic :: Internet :: WWW/HTTP :: Browsers",
 ]
 dependencies = [
-    "mcp>=1.25.0",
+    "mcp>=1.25.0,<2",
     "camoufox>=0.4.0",
     "playwright>=1.40.0",
 ]
